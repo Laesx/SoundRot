@@ -1,31 +1,49 @@
+import datetime
 import sys
 import random
 import time
 import json
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QPushButton, QVBoxLayout, QWidget,
-    QFileDialog, QListWidget, QDoubleSpinBox, QLabel, QMessageBox, QHBoxLayout, QSlider
+    QFileDialog, QListWidget, QDoubleSpinBox, QLabel, QMessageBox, QHBoxLayout, QSlider, QComboBox
 )
 from PyQt6.QtCore import QThread, pyqtSignal, QTimer, Qt
 import pygame
 
+import threading
 
 class TimerManager:
     def __init__(self):
         self.timers = []
 
-    def schedule_function(self, interval_ms, function):
-        timer = QTimer()
-        timer.setSingleShot(True)
-        timer.timeout.connect(function)
-        timer.start(interval_ms)
+    def schedule_function(self, interval_sec, function):
+        # interval_sec = interval_ms / 1000.0
+        timer = threading.Timer(interval_sec, function)
+        timer.start()
         self.timers.append(timer)
         return timer
 
     def clear_timers(self):
         for timer in self.timers:
-            timer.stop()
+            timer.cancel()
         self.timers.clear()
+
+# class TimerManager:
+#     def __init__(self):
+#         self.timers = []
+#
+#     def schedule_function(self, interval_ms, function):
+#         timer = QTimer()
+#         timer.setSingleShot(True)
+#         timer.timeout.connect(function)
+#         timer.start(msec=interval_ms)
+#         self.timers.append(timer)
+#         return timer
+#
+#     def clear_timers(self):
+#         for timer in self.timers:
+#             timer.stop()
+#         self.timers.clear()
 
 
 class AudioPlayerThread(QThread):
@@ -44,17 +62,19 @@ class AudioPlayerThread(QThread):
 
         # Schedule initial playback for all files
         for file, frequency in self.files_with_frequencies.items():
-            self.schedule_next_play(file, frequency)
+            self.play_file(file)
+            # self.schedule_next_play(file, frequency)
 
         while self.running:
             time.sleep(0.1)  # Keep the thread alive
 
     def schedule_next_play(self, file, frequency):
-        # Calculate random interval based on frequency (plays/hour)
-        interval_sec = random.expovariate(frequency / 3600.0)  # Exponential distribution
-        interval_ms = int(interval_sec * 1000)
-        print(f"Next play for {file} in {interval_sec:.1f} seconds")
-        self.timer_manager.schedule_function(interval_ms, lambda: self.play_file(file))
+        # Calculate random interval based on frequency
+        # interval_sec = random.expovariate(frequency / 3600.0)  # Exponential distribution
+        interval_sec = random.random() * 1000 * frequency
+        # interval_ms = int(interval_sec * 1000)
+        print(f"Next play for {file} in {datetime.timedelta(seconds=interval_sec)} with frequency {frequency:.1f}")
+        self.timer_manager.schedule_function(interval_sec, lambda: self.play_file(file))
 
     def play_file(self, file):
         if not self.running:
@@ -67,6 +87,7 @@ class AudioPlayerThread(QThread):
         if self.running:
             # Reschedule the file for next play
             self.schedule_next_play(file, self.files_with_frequencies[file])
+        self.signal.emit("Playing")
 
     def stop(self):
         self.running = False
@@ -77,7 +98,7 @@ class AudioPlayerThread(QThread):
 class RandomSoundApp(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Random Sound Player")
+        self.setWindowTitle("Sound Rot 9000")
         self.files_with_frequencies = {}
         self.player_thread = None
 
@@ -99,10 +120,25 @@ class RandomSoundApp(QMainWindow):
 
         self.frequency_slider = QSlider()
         self.frequency_slider.setOrientation(Qt.Orientation.Horizontal)
-        self.frequency_slider.setRange(1, 5)
-        self.frequency_slider.setValue(1)
-        layout.addWidget(QLabel("Set Frequency:"))
+        self.frequency_slider.setRange(1, 49)
+        self.frequency_slider.setValue(40)
+        # layout.addWidget(QLabel(f"Set Frequency: {self.frequency_slider.value() / 10:.1f}"))
+        # layout.addWidget(self.frequency_slider)
+        self.frequency_label = QLabel("Multiplier: 1.0")
+        layout.addWidget(self.frequency_label)
+        # Update the label text when the slider value changes
+        self.frequency_slider.valueChanged.connect(
+            lambda: self.frequency_label.setText(f"Multiplier: { 5 - (self.frequency_slider.value() / 10):.1f}"))
         layout.addWidget(self.frequency_slider)
+
+        # self.frequency_spinbox = QDoubleSpinBox()
+        # self.frequency_spinbox.setRange(0.1, 10.0)
+        # self.frequency_spinbox.setValue(1.0)
+        # # self.frequency_label = QLabel("Multiplier: 1.0")
+        # # self.frequency_spinbox.setSuffix(" Multiplier")
+        # layout.addWidget(QLabel("Set Frequency for Selected File:"))
+        # layout.addWidget(self.frequency_spinbox)
+
 
         set_frequency_button = QPushButton("Set Frequency")
         set_frequency_button.clicked.connect(self.set_frequency)
@@ -136,8 +172,8 @@ class RandomSoundApp(QMainWindow):
         files, _ = QFileDialog.getOpenFileNames(self, "Select Sound Files", "", "Audio Files (*.mp3 *.wav *.ogg)")
         for file in files:
             if file not in self.files_with_frequencies:
-                self.files_with_frequencies[file] = 10.0  # Default frequency
-                self.file_list.addItem(f"{file} (10.0 plays/hour)")
+                self.files_with_frequencies[file] = 1  # Default frequency
+                self.file_list.addItem(f"{file}")
 
     def remove_selected_file(self):
         selected_items = self.file_list.selectedItems()
@@ -151,11 +187,13 @@ class RandomSoundApp(QMainWindow):
         if not selected_items:
             QMessageBox.warning(self, "Warning", "No file selected!")
             return
-        frequency = self.frequency_spinbox.value()
+        # frequency = 5 - (self.frequency_combobox.value() / 10)
+        frequency = 5 - (self.frequency_slider.value() / 10)
+        print(f"Frequency: {frequency}")
         for item in selected_items:
             file = item.text().split(" (")[0]
             self.files_with_frequencies[file] = frequency
-            item.setText(f"{file} ({frequency:.1f} plays/hour)")
+            item.setText(f"{file} ({frequency:.1f} multiplier)")
 
     def start_playback(self):
         if not self.files_with_frequencies:
@@ -168,6 +206,9 @@ class RandomSoundApp(QMainWindow):
         self.player_thread = AudioPlayerThread(self.files_with_frequencies)
         self.player_thread.signal.connect(self.update_status)
         self.player_thread.start()
+        # Play each file once immediately
+        # for file in self.files_with_frequencies:
+        #     self.player_thread.play_file(file)
         self.status_label.setText("Status: Playing")
 
     def stop_playback(self):
