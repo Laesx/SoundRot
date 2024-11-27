@@ -11,6 +11,7 @@ from PyQt6.QtCore import QThread, pyqtSignal, QTimer, Qt
 import pygame
 
 import threading
+import os
 
 class TimerManager:
     def __init__(self):
@@ -122,23 +123,11 @@ class RandomSoundApp(QMainWindow):
         self.frequency_slider.setOrientation(Qt.Orientation.Horizontal)
         self.frequency_slider.setRange(1, 49)
         self.frequency_slider.setValue(40)
-        # layout.addWidget(QLabel(f"Set Frequency: {self.frequency_slider.value() / 10:.1f}"))
-        # layout.addWidget(self.frequency_slider)
         self.frequency_label = QLabel("Multiplier: 1.0")
         layout.addWidget(self.frequency_label)
-        # Update the label text when the slider value changes
         self.frequency_slider.valueChanged.connect(
-            lambda: self.frequency_label.setText(f"Multiplier: { 5 - (self.frequency_slider.value() / 10):.1f}"))
+            lambda: self.frequency_label.setText(f"Multiplier: {5 - (self.frequency_slider.value() / 10):.1f}"))
         layout.addWidget(self.frequency_slider)
-
-        # self.frequency_spinbox = QDoubleSpinBox()
-        # self.frequency_spinbox.setRange(0.1, 10.0)
-        # self.frequency_spinbox.setValue(1.0)
-        # # self.frequency_label = QLabel("Multiplier: 1.0")
-        # # self.frequency_spinbox.setSuffix(" Multiplier")
-        # layout.addWidget(QLabel("Set Frequency for Selected File:"))
-        # layout.addWidget(self.frequency_spinbox)
-
 
         set_frequency_button = QPushButton("Set Frequency")
         set_frequency_button.clicked.connect(self.set_frequency)
@@ -155,39 +144,59 @@ class RandomSoundApp(QMainWindow):
         stop_button.clicked.connect(self.stop_playback)
         layout.addWidget(stop_button)
 
-        save_config_button = QPushButton("Save Configuration")
-        save_config_button.clicked.connect(self.save_configuration)
-        layout.addWidget(save_config_button)
-
-        load_config_button = QPushButton("Load Configuration")
-        load_config_button.clicked.connect(self.load_configuration)
-        layout.addWidget(load_config_button)
+        # save_config_button = QPushButton("Save Configuration")
+        # save_config_button.clicked.connect(self.save_configuration)
+        # layout.addWidget(save_config_button)
+        #
+        # load_config_button = QPushButton("Load Configuration")
+        # load_config_button.clicked.connect(self.load_configuration)
+        # layout.addWidget(load_config_button)
 
         # Main widget
         container = QWidget()
         container.setLayout(layout)
         self.setCentralWidget(container)
 
+        # Automatically load configuration on startup
+        self.load_configuration()
+
     def select_files(self):
         files, _ = QFileDialog.getOpenFileNames(self, "Select Sound Files", "", "Audio Files (*.mp3 *.wav *.ogg)")
         for file in files:
+            # self.add_file_to_list(file)
             if file not in self.files_with_frequencies:
                 self.files_with_frequencies[file] = 1  # Default frequency
-                self.file_list.addItem(f"{file}")
+                # self.file_list.addItem(f"{file.split('/')[-1]}")
+                self.add_file_to_list(file)
 
+
+    def add_file_to_list(self, file):
+        # self.files_with_frequencies[file] = 1
+        # print(f"Added file: {file}")
+        self.file_list.addItem(f"{file.split('/')[-1]}")
+
+
+    # I'm ashamed of this function
     def remove_selected_file(self):
         selected_items = self.file_list.selectedItems()
+        files_to_remove = []
         for item in selected_items:
-            file = item.text().split(" (")[0]
+            # file = item.text().split(" (")[0]
+            for file in self.files_with_frequencies:
+                print(f"File: {file} Item: {item.text()}")
+                if file.split('/')[-1] == item.text():
+                    # del self.files_with_frequencies[file]
+                    files_to_remove.append(file)
+                    self.file_list.takeItem(self.file_list.row(item))
+
+        for file in files_to_remove:
             del self.files_with_frequencies[file]
-            self.file_list.takeItem(self.file_list.row(item))
 
     def set_frequency(self):
         selected_items = self.file_list.selectedItems()
         if not selected_items:
             QMessageBox.warning(self, "Warning", "No file selected!")
             return
-        # frequency = 5 - (self.frequency_combobox.value() / 10)
         frequency = 5 - (self.frequency_slider.value() / 10)
         print(f"Frequency: {frequency}")
         for item in selected_items:
@@ -206,9 +215,6 @@ class RandomSoundApp(QMainWindow):
         self.player_thread = AudioPlayerThread(self.files_with_frequencies)
         self.player_thread.signal.connect(self.update_status)
         self.player_thread.start()
-        # Play each file once immediately
-        # for file in self.files_with_frequencies:
-        #     self.player_thread.play_file(file)
         self.status_label.setText("Status: Playing")
 
     def stop_playback(self):
@@ -219,25 +225,32 @@ class RandomSoundApp(QMainWindow):
 
     def save_configuration(self):
         config = {"files_with_frequencies": self.files_with_frequencies}
-        config_file, _ = QFileDialog.getSaveFileName(self, "Save Configuration", "", "JSON Files (*.json)")
-        if config_file:
-            with open(config_file, "w") as f:
-                json.dump(config, f)
-            QMessageBox.information(self, "Success", "Configuration saved!")
+        config_file = os.path.join(os.path.dirname(__file__), "config.json")
+        with open(config_file, "w") as f:
+            json.dump(config, f)
+        # QMessageBox.information(self, "Success", "Configuration saved!")
 
     def load_configuration(self):
-        config_file, _ = QFileDialog.getOpenFileName(self, "Load Configuration", "", "JSON Files (*.json)")
-        if config_file:
+        config_file = os.path.join(os.path.dirname(__file__), "config.json")
+        if os.path.exists(config_file):
             with open(config_file, "r") as f:
                 config = json.load(f)
             self.files_with_frequencies = config.get("files_with_frequencies", {})
             self.file_list.clear()
             for file, frequency in self.files_with_frequencies.items():
-                self.file_list.addItem(f"{file} ({frequency:.1f} plays/hour)")
-            QMessageBox.information(self, "Success", "Configuration loaded!")
+                self.add_file_to_list(file)
+                # self.file_list.addItem(f"{file} ({frequency:.1f} plays/hour)")
+            # QMessageBox.information(self, "Success", "Configuration loaded!")
 
     def update_status(self, message):
         self.status_label.setText(f"Status: {message}")
+
+    def closeEvent(self, event):
+        if self.player_thread and self.player_thread.isRunning():
+            self.player_thread.stop()
+            self.player_thread.wait()
+        self.save_configuration()
+        event.accept()
 
 
 if __name__ == "__main__":
